@@ -1,6 +1,7 @@
 
 import html
 import http.cookiejar
+import json
 import os
 import re
 import shutil
@@ -157,6 +158,49 @@ def _extract_fallback_video_url(page_url: str, cookies_path: Path | None) -> str
     return None
 
 
+def _extract_x_fallback_video_url(page_url: str) -> tuple[str, str | None] | None:
+    """Extrait l'URL vidéo directe d'un tweet via api.fxtwitter.com / api.vxtwitter.com."""
+    match = re.search(r"/status/(\d+)", page_url)
+    if not match:
+        return None
+    tweet_id = match.group(1)
+
+    for api_url in (
+        f"https://api.fxtwitter.com/i/status/{tweet_id}",
+        f"https://api.vxtwitter.com/i/status/{tweet_id}",
+    ):
+        try:
+            req = urllib.request.Request(api_url, headers={"User-Agent": BROWSER_UA})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        except Exception:
+            continue
+
+        # Format FxTwitter (tweet + éventuel tweet cité)
+        tweet = data.get("tweet")
+        if isinstance(tweet, dict):
+            title = (tweet.get("text") or "").strip()[:80] or None
+            for node in (tweet, tweet.get("quote")):
+                if not isinstance(node, dict):
+                    continue
+                videos = (node.get("media") or {}).get("videos") or []
+                if isinstance(videos, list) and videos:
+                    url = videos[0].get("url")
+                    if isinstance(url, str) and url.startswith("http"):
+                        return url, title
+
+        # Format VxTwitter
+        media_ext = data.get("media_extended") or []
+        if isinstance(media_ext, list):
+            title = (data.get("text") or "").strip()[:80] or None
+            for item in media_ext:
+                if isinstance(item, dict) and item.get("type") in ("video", "gif"):
+                    url = item.get("url")
+                    if isinstance(url, str) and url.startswith("http"):
+                        return url, title
+    return None
+
+
 def run_download(job_id: str) -> None:
     job = jobs.get(job_id)
     if not job:
@@ -200,11 +244,19 @@ def run_download(job_id: str) -> None:
                 if isinstance(info, dict):
                     job.title = info.get("title") or job.platform
         except Exception:
-            if job.platform not in ("Threads", "Snapchat"):
+            fallback_title: str | None = None
+            if job.platform == "X":
+                x_result = _extract_x_fallback_video_url(job.url)
+                if not x_result:
+                    raise
+                fallback_url, fallback_title = x_result
+            elif job.platform in ("Threads", "Snapchat"):
+                fallback_url = _extract_fallback_video_url(job.url, cookies_path)
+                if not fallback_url:
+                    raise
+            else:
                 raise
-            fallback_url = _extract_fallback_video_url(job.url, cookies_path)
-            if not fallback_url:
-                raise
+
             fallback_opts = {
                 **ydl_opts,
                 "outtmpl": str(job_dir / f"{job.platform} [{job_id[:8]}].%(ext)s"),
@@ -212,7 +264,7 @@ def run_download(job_id: str) -> None:
             }
             with yt_dlp.YoutubeDL(fallback_opts) as ydl:
                 ydl.extract_info(fallback_url, download=True)
-                job.title = f"{job.platform} video"
+                job.title = fallback_title or f"{job.platform} video"
 
         files = [p for p in job_dir.iterdir() if p.is_file()]
         if not files:
