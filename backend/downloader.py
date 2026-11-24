@@ -3,7 +3,9 @@ import re
 import shutil
 import tempfile
 import uuid
-from dataclasses import dataclass
+import os 
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -56,6 +58,7 @@ class JobRecord:
     filename: str | None = None
     file_path: Path | None = None
     error: str | None = None
+    created_at: float = field(default_factory=time.time)
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +78,7 @@ jobs: dict[str, JobRecord] = {}
 
 
 def create_job(raw_text: str) -> JobRecord:
+    cleanup_expired_jobs()
     url = extract_url(raw_text)
     if not url:
         raise ValueError("Aucune URL valide trouvée.")
@@ -92,6 +96,13 @@ def cleanup_job_files(job_id: str) -> None:
     job = jobs.get(job_id)
     if job:
         job.file_path = None
+
+def cleanup_expired_jobs(max_age_seconds: int = 900) -> None:
+    now = time.time()
+    expired = [jid for jid, rec in jobs.items() if (now - rec.created_at) > max_age_seconds]
+    for jid in expired:
+        cleanup_job_files(jid)
+        jobs.pop(jid, None)
 
 
 def run_download(job_id: str) -> None:

@@ -1,5 +1,7 @@
 import asyncio
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -74,6 +76,18 @@ def download_job_file(job_id: str) -> FileResponse:
         filename=job.filename or "video.mp4",
         background=BackgroundTask(cleanup_job_files, job_id),
     )
+
+@app.post("/api/update-ytdlp", dependencies=[Depends(verify_api_key)])
+async def update_ytdlp() -> dict[str, str]:
+    proc = await asyncio.to_thread(
+        subprocess.run,
+        [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise HTTPException(status_code=500, detail=proc.stderr.strip() or "Échec mise à jour.")
+    return {"status": "updated"}
 
 
 # En production, sert le site Vite compilé (frontend/dist)
