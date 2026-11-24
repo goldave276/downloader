@@ -13,11 +13,13 @@ export default defineConfig({
                 short_name: 'Down',
                 start_url: '/',
                 display: 'standalone',
-                theme_color: '#09090b',
-                background_color: '#09090b',
+                theme_color: '#121212',
+                background_color: '#121212',
                 icons: [
-                    { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-                    { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+                    { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+                    { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+                    { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+                    { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
                 ],
                 share_target: {
                     action: '/share',

@@ -94,3 +94,4 @@ export async function triggerYtDlpUpdate(baseUrl: string, apiKey: string): Promi
     throw new Error(await parseError(res));
   }
 }
+

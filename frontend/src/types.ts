@@ -18,3 +18,4 @@ export interface HistoryItem {
   url: string;
   downloadedAt: number;
 }
+

@@ -187,7 +187,7 @@ export default function App() {
     <main className="app">
       <header className="header">
         <div className="brand">
-          <span className="brand-dot" />
+          <img src="/icon-192.png" alt="Down" className="brand-logo" />
           <h1>Down</h1>
           <span className="badge">MAX HD</span>
         </div>

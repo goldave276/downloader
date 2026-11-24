@@ -99,5 +99,10 @@ if FRONTEND_DIST.is_dir():
     def serve_spa(full_path: str) -> FileResponse:
         target = FRONTEND_DIST / full_path
         if full_path and target.is_file():
-            return FileResponse(target)
+            media_type = None
+            if target.suffix == ".webmanifest":
+                media_type = "application/manifest+json"
+            elif target.suffix == ".js":
+                media_type = "application/javascript"
+            return FileResponse(target, media_type=media_type)
         return FileResponse(FRONTEND_DIST / "index.html")
