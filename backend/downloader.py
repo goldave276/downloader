@@ -1,10 +1,13 @@
 
+import html
+import http.cookiejar
+import os
 import re
 import shutil
 import tempfile
-import uuid
-import os 
 import time
+import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -105,6 +108,55 @@ def cleanup_expired_jobs(max_age_seconds: int = 900) -> None:
         jobs.pop(jid, None)
 
 
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+_META_VIDEO_PATTERNS = [
+    re.compile(r'<meta[^>]+property=["\']og:video(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']', re.I),
+    re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:video(?::secure_url)?["\']', re.I),
+    re.compile(r'"contentUrl"\s*:\s*"(https?://[^"]+)"', re.I),
+    re.compile(r'"video_versions"\s*:\s*\[\s*\{[^}]*"url"\s*:\s*"(https?://[^"]+)"', re.I),
+    re.compile(r'"video_url"\s*:\s*"(https?://[^"]+)"', re.I),
+    re.compile(r'(https?://[^"\'\s<>]+?\.mp4(?:\?[^"\'\s<>]*)?)', re.I),
+]
+
+
+def _extract_fallback_video_url(page_url: str, cookies_path: Path | None) -> str | None:
+    """Extrait l'URL vidéo directe depuis le HTML (secours pour Threads / Snapchat)."""
+    handlers: list[urllib.request.BaseHandler] = []
+    if cookies_path and cookies_path.is_file():
+        jar = http.cookiejar.MozillaCookieJar(str(cookies_path))
+        try:
+            jar.load(ignore_discard=True, ignore_expires=True)
+            handlers.append(urllib.request.HTTPCookieProcessor(jar))
+        except Exception:
+            pass
+
+    opener = urllib.request.build_opener(*handlers)
+    req = urllib.request.Request(
+        page_url,
+        headers={
+            "User-Agent": BROWSER_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+        },
+    )
+    with opener.open(req, timeout=20) as resp:
+        raw_html = resp.read().decode("utf-8", errors="ignore")
+
+    normalized = html.unescape(raw_html).replace(r"\/", "/").replace(r"\u0026", "&")
+    for pattern in _META_VIDEO_PATTERNS:
+        match = pattern.search(normalized)
+        if match:
+            candidate = match.group(1).strip()
+            if candidate.startswith("http"):
+                return candidate
+    return None
+
+
 def run_download(job_id: str) -> None:
     job = jobs.get(job_id)
     if not job:
@@ -137,11 +189,30 @@ def run_download(job_id: str) -> None:
         "progress_hooks": [on_progress],
     }
 
+    cookies_path = Path(__file__).resolve().parent / "cookies.txt"
+    if cookies_path.is_file():
+        ydl_opts["cookiefile"] = str(cookies_path)
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(job.url, download=True)
-            if isinstance(info, dict):
-                job.title = info.get("title") or job.platform
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(job.url, download=True)
+                if isinstance(info, dict):
+                    job.title = info.get("title") or job.platform
+        except Exception:
+            if job.platform not in ("Threads", "Snapchat"):
+                raise
+            fallback_url = _extract_fallback_video_url(job.url, cookies_path)
+            if not fallback_url:
+                raise
+            fallback_opts = {
+                **ydl_opts,
+                "outtmpl": str(job_dir / f"{job.platform} [{job_id[:8]}].%(ext)s"),
+                "http_headers": {"User-Agent": BROWSER_UA, "Referer": job.url},
+            }
+            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                ydl.extract_info(fallback_url, download=True)
+                job.title = f"{job.platform} video"
 
         files = [p for p in job_dir.iterdir() if p.is_file()]
         if not files:
