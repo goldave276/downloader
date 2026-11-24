@@ -1,0 +1,11 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/.env
+backend/cookies.txt
+*.pyc
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
